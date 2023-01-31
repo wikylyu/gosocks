@@ -1,3 +1,3 @@
-module github.com/firefart/gosocks
+module github.com/wikylyu/gosocks
 
 go 1.18
