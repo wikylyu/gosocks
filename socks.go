@@ -93,7 +93,7 @@ func (p *Proxy) socks(ctx context.Context, conn net.Conn) *Error {
 	if err := <-errChannel2; err != nil {
 		return &Error{Reason: RequestReplyHostUnreachable, Err: err}
 	}
-	p.Log.Debug("end of connection handling")
+	p.Log.Infof("Connection closed %s - %s", conn.RemoteAddr().String(), request.getDestinationString())
 
 	return nil
 }
