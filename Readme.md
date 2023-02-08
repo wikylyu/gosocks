@@ -14,7 +14,7 @@ The SOCKS protocol is defined in [rfc1928](https://tools.ietf.org/html/rfc1928)
 
 ```golang
 type ProxyHandler interface {
-	PreHandler(Request) (io.ReadWriteCloser, *Error)
+	PreHandler(net.Addr, Request) (io.ReadWriteCloser, *Error)
 	CopyFromClientToRemote(context.Context, io.ReadCloser, io.WriteCloser) error
 	CopyFromRemoteToClient(context.Context, io.ReadCloser, io.WriteCloser) error
 	Cleanup() error
@@ -119,7 +119,7 @@ type MyCustomHandler struct {
 	Log     Logger,
 }
 
-func (s *MyCustomHandler) PreHandler(request socks.Request) (io.ReadWriteCloser, *socks.Error) {
+func (s *MyCustomHandler) PreHandler(addr net.Addr,request socks.Request) (io.ReadWriteCloser, *socks.Error) {
 	conn, err := net.DialTimeout("tcp", s.Server, s.Timeout)
 	if err != nil {
 		return nil, &socks.SocksError{Reason: socks.RequestReplyHostUnreachable, Err: fmt.Errorf("error on connecting to server: %w", err)}

@@ -51,7 +51,7 @@ func (p *Proxy) socks(ctx context.Context, conn net.Conn) *Error {
 	}
 
 	// Should we assume connection succeed here?
-	remote, err := p.Proxyhandler.PreHandler(*request)
+	remote, err := p.Proxyhandler.PreHandler(conn.RemoteAddr(), *request)
 	if err != nil {
 		p.Log.Warnf("Connecting to %s failed: %v", request.getDestinationString(), err)
 		return err
@@ -59,13 +59,7 @@ func (p *Proxy) socks(ctx context.Context, conn net.Conn) *Error {
 	defer remote.Close()
 	p.Log.Infof("Connection established %s - %s", conn.RemoteAddr().String(), request.getDestinationString())
 
-	var ip net.Addr
-	if r, ok := remote.(net.Conn); ok {
-		ip = r.LocalAddr()
-	} else {
-		ip = nil
-	}
-	err = p.handleRequestReply(ctx, conn, ip)
+	err = p.handleRequestReply(ctx, conn, request)
 	if err != nil {
 		return err
 	}
@@ -197,8 +191,8 @@ func (p *Proxy) handleRequest(ctx context.Context, conn io.ReadWriteCloser) (*Re
 	return request, nil
 }
 
-func (p *Proxy) handleRequestReply(ctx context.Context, conn io.ReadWriteCloser, addr net.Addr) *Error {
-	repl, err := requestReply(addr, RequestReplySucceeded)
+func (p *Proxy) handleRequestReply(ctx context.Context, conn io.ReadWriteCloser, request *Request) *Error {
+	repl, err := requestReply(request, RequestReplySucceeded)
 	if err != nil {
 		return &Error{Reason: RequestReplyGeneralFailure, Err: fmt.Errorf("error on requestReply: %w", err)}
 	}

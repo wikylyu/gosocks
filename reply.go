@@ -1,11 +1,8 @@
 package socks
 
 import (
+	"bytes"
 	"encoding/binary"
-	"fmt"
-	"net"
-	"net/netip"
-	"strconv"
 )
 
 /*
@@ -49,45 +46,32 @@ import (
 	   client-side source address and port in evaluating the CONNECT
 	   request.
 */
-func requestReply(in net.Addr, reply RequestReplyReason) ([]byte, error) {
-	var buf []byte
-	buf = append(buf, Version5.Value())
-	buf = append(buf, reply.Value())
-	// reserved
-	buf = append(buf, 0x00)
+func requestReply(request *Request, reply RequestReplyReason) ([]byte, error) {
+	buffer := bytes.NewBuffer(nil)
+	binary.Write(buffer, binary.BigEndian, Version5.Value())
+	binary.Write(buffer, binary.BigEndian, reply.Value())
+	binary.Write(buffer, binary.BigEndian, byte(0x00))
 
-	if in != nil {
-		host, port, err := net.SplitHostPort(in.String())
-		if err != nil {
-			return nil, err
-		}
-		ip, err := netip.ParseAddr(host)
-		if err != nil {
-			return nil, err
-		}
+	if request != nil {
+		binary.Write(buffer, binary.BigEndian, request.AddressType.Value())
 
 		// type
-		if ip.Is4() {
-			buf = append(buf, RequestAddressTypeIPv4.Value())
-		} else if ip.Is6() {
-			buf = append(buf, RequestAddressTypeIPv6.Value())
+		if request.AddressType == RequestAddressTypeIPv4 {
+			binary.Write(buffer, binary.BigEndian, request.DestinationAddress)
+		} else if request.AddressType == RequestAddressTypeIPv6 {
+			binary.Write(buffer, binary.BigEndian, request.DestinationAddress)
 		} else {
-			return nil, fmt.Errorf("ip %s invalid", ip.String())
+			binary.Write(buffer, binary.BigEndian, byte(len(request.DestinationAddress)))
+			binary.Write(buffer, binary.BigEndian, request.DestinationAddress)
 		}
 
-		buf = append(buf, ip.AsSlice()...)
-		portInt, err := strconv.ParseUint(port, 10, 16)
-		if err != nil {
-			return nil, err
-		}
-		var portByte = make([]byte, 2)
-		binary.BigEndian.PutUint16(portByte, uint16(portInt))
-		buf = append(buf, portByte...)
+		binary.Write(buffer, binary.BigEndian, request.DestinationPort)
 	} else {
-		// type
-		buf = append(buf, RequestAddressTypeIPv4.Value())
-		// error reply
-		buf = append(buf, []byte{0, 0, 0, 0}...)
+		binary.Write(buffer, binary.BigEndian, RequestAddressTypeIPv4.Value())
+		binary.Write(buffer, binary.BigEndian, []byte{0, 0, 0, 0})
+		binary.Write(buffer, binary.BigEndian, uint16(0))
+
 	}
-	return buf, nil
+
+	return buffer.Bytes(), nil
 }
