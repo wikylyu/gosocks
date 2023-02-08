@@ -9,11 +9,10 @@ import (
 
 // ProxyHandler is the interface for handling the proxy requests
 type ProxyHandler interface {
-	PreHandler(net.Addr, Request) (io.ReadWriteCloser, *Error)
-	CopyFromClientToRemote(context.Context, io.ReadCloser, io.WriteCloser) error
-	CopyFromRemoteToClient(context.Context, io.ReadCloser, io.WriteCloser) error
-	Cleanup() error
-	Refresh(context.Context)
+	Init(net.Addr, Request) (io.ReadWriteCloser, *Error)
+	ReadFromClient(context.Context, io.ReadCloser, io.WriteCloser) error
+	ReadFromRemote(context.Context, io.ReadCloser, io.WriteCloser) error
+	Close() error
 }
 
 // Proxy is the main struct

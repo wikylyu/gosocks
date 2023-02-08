@@ -21,7 +21,7 @@ type Request struct {
 	DestinationPort    uint16
 }
 
-func (r Request) getDestinationString() string {
+func (r Request) GetDestinationString() string {
 	switch r.AddressType {
 	case RequestAddressTypeDomainname:
 		return fmt.Sprintf("%s:%d", r.DestinationAddress, r.DestinationPort)

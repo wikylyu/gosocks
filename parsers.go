@@ -118,7 +118,7 @@ func parseHeader(buf []byte) (Header, error) {
 	case byte(Version5):
 		h.Version = Version5
 	default:
-		return h, fmt.Errorf("Could not get socks version from header")
+		return h, fmt.Errorf("could not get socks version from header")
 	}
 	numMethods := buf[1]
 	if len(buf) < int(numMethods)+2 {

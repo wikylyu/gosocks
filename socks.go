@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"sync"
 )
 
 func (p *Proxy) handle(conn net.Conn) {
@@ -19,24 +18,18 @@ func (p *Proxy) handle(conn net.Conn) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if c, ok := conn.(net.Conn); ok {
-		p.Log.Debugf("got connection from %s", c.RemoteAddr().String())
-	} else {
-		p.Log.Debug("got connection")
-	}
+	p.Log.Debugf("got connection from %s", conn.RemoteAddr().String())
+
 	if err := p.socks(ctx, conn); err != nil {
 		// send error reply
 		p.Log.Debugf("socks error: %v", err.Err)
-		if err := p.socksErrorReply(ctx, conn, err.Reason); err != nil {
-			p.Log.Debug(err)
-			return
-		}
 	}
 }
 
 func (p *Proxy) socks(ctx context.Context, conn net.Conn) *Error {
+	defer conn.Close()
 	defer func() {
-		if err := p.Proxyhandler.Cleanup(); err != nil {
+		if err := p.Proxyhandler.Close(); err != nil {
 			p.Log.Errorf("error on cleanup: %v", err)
 		}
 	}()
@@ -51,81 +44,45 @@ func (p *Proxy) socks(ctx context.Context, conn net.Conn) *Error {
 	}
 
 	// Should we assume connection succeed here?
-	remote, err := p.Proxyhandler.PreHandler(conn.RemoteAddr(), *request)
+	remote, err := p.Proxyhandler.Init(conn.RemoteAddr(), *request)
 	if err != nil {
-		p.Log.Warnf("Connecting to %s failed: %v", request.getDestinationString(), err)
+		p.socksErrorReply(ctx, conn, err.Reason)
+		p.Log.Warnf("Connecting to %s failed: %v", request.GetDestinationString(), err)
 		return err
 	}
 	defer remote.Close()
-	p.Log.Infof("Connection established %s - %s", conn.RemoteAddr().String(), request.getDestinationString())
+	p.Log.Infof("Connection established %s - %s", conn.RemoteAddr().String(), request.GetDestinationString())
 
 	err = p.handleRequestReply(ctx, conn, request)
 	if err != nil {
+		p.socksErrorReply(ctx, conn, err.Reason)
 		return err
 	}
 
 	p.Log.Debug("beginning of data copy")
 
-	wg := &sync.WaitGroup{}
-	errChannel1 := make(chan error, 1)
-	errChannel2 := make(chan error, 1)
 	ctx2, cancel := context.WithCancel(ctx)
 	defer cancel()
-	wg.Add(2)
 
-	go p.copyClientToRemote(ctx2, conn, remote, wg, errChannel1)
-	go p.copyRemoteToClient(ctx2, remote, conn, wg, errChannel2)
-	go p.Proxyhandler.Refresh(ctx2)
+	go func() {
+		defer conn.Close()
+		defer remote.Close()
+		for {
+			if err := p.Proxyhandler.ReadFromClient(ctx2, conn, remote); err != nil {
+				break
+			}
+		}
+	}()
 
-	p.Log.Debug("waiting for copy to finish")
-	wg.Wait()
-	// stop refreshing the connection
-	cancel()
-	if err := <-errChannel1; err != nil {
-		return &Error{Reason: RequestReplyHostUnreachable, Err: err}
+	for {
+		if err := p.Proxyhandler.ReadFromRemote(ctx2, remote, conn); err != nil {
+			break
+		}
 	}
-	if err := <-errChannel2; err != nil {
-		return &Error{Reason: RequestReplyHostUnreachable, Err: err}
-	}
-	p.Log.Infof("Connection closed %s - %s", conn.RemoteAddr().String(), request.getDestinationString())
+
+	p.Log.Infof("Connection closed %s - %s", conn.RemoteAddr().String(), request.GetDestinationString())
 
 	return nil
-}
-
-func (p *Proxy) copyClientToRemote(ctx context.Context, client io.ReadCloser, remote io.WriteCloser, wg *sync.WaitGroup, errChannel chan<- error) {
-	defer wg.Done()
-	defer close(errChannel)
-
-	select {
-	case <-p.Done:
-		errChannel <- nil
-		return
-	default:
-		if err := p.Proxyhandler.CopyFromClientToRemote(ctx, client, remote); err != nil {
-			errChannel <- fmt.Errorf("error on copy from Client to Remote: %v", err)
-			return
-		}
-		errChannel <- nil
-		return
-	}
-}
-
-func (p *Proxy) copyRemoteToClient(ctx context.Context, remote io.ReadCloser, client io.WriteCloser, wg *sync.WaitGroup, errChannel chan<- error) {
-	defer wg.Done()
-	defer close(errChannel)
-
-	select {
-	case <-p.Done:
-		errChannel <- nil
-		return
-	default:
-		if err := p.Proxyhandler.CopyFromRemoteToClient(ctx, remote, client); err != nil {
-			errChannel <- fmt.Errorf("error on copy from Remote to Client: %v", err)
-			return
-		}
-		errChannel <- nil
-		return
-	}
 }
 
 func (p *Proxy) socksErrorReply(ctx context.Context, conn io.ReadWriteCloser, reason RequestReplyReason) error {
